@@ -37,7 +37,7 @@ async function initSheet() {
 async function getUser(telegramId) {
   try {
     const rows = await sheet.getRows();
-    const userRow = rows.find(row => row.get('telegram_id') == telegramId.toString());
+    const userRow = rows.find(row => row.get('telegram_id') === telegramId.toString());
     if (userRow) {
       return {
         telegram_id: userRow.get('telegram_id'),
@@ -46,7 +46,8 @@ async function getUser(telegramId) {
         stripe_customer_id: userRow.get('stripe_customer_id'),
         subscription_status: userRow.get('subscription_status'),
         subscription_end_date: userRow.get('subscription_end_date'),
-        created_at: userRow.get('created_at')
+        created_at: userRow.get('created_at'),
+        _row: userRow  // Keep reference for updates
       };
     }
     return null;
@@ -89,7 +90,7 @@ async function createUser(telegramId, username, firstName) {
 async function updateUserSubscription(telegramId, status, endDate) {
   try {
     const rows = await sheet.getRows();
-    const userRow = rows.find(row => row.get('telegram_id') == telegramId.toString());
+    const userRow = rows.find(row => row.get('telegram_id') === telegramId.toString());
     if (userRow) {
       userRow.set('subscription_status', status);
       userRow.set('subscription_end_date', endDate ? endDate.toISOString() : '');
