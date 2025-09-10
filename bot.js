@@ -245,6 +245,7 @@ async function getPrivateGroupLink() {
 
 // Stripe Webhook Handler
 app.post('/stripe-webhook', express.raw({type: 'application/json'}), async (req, res) => {
+  console.log('Webhook received');
   const sig = req.headers['stripe-signature'];
   let event;
 
@@ -254,8 +255,9 @@ app.post('/stripe-webhook', express.raw({type: 'application/json'}), async (req,
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
     );
+    console.log('Event type:', event.type);
   } catch (err) {
-    console.error('Webhook signature failed:', err);
+    console.error('Webhook signature failed:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
@@ -264,16 +266,21 @@ app.post('/stripe-webhook', express.raw({type: 'application/json'}), async (req,
     case 'checkout.session.completed':
       const session = event.data.object;
       const telegramId = session.metadata.telegram_id;
+      console.log('Processing payment for telegram_id:', telegramId);
       
-      // Get subscription end date
+      // Get subscription details
       const subscription = await stripe.subscriptions.retrieve(session.subscription);
       const endDate = new Date(subscription.current_period_end * 1000);
+      console.log('Subscription end date:', endDate);
       
-      // Update user in sheet
-      await updateUserSubscription(telegramId, 'active', endDate);
+      // Update user
+      const updated = await updateUserSubscription(telegramId, 'active', endDate);
+      console.log('User updated:', updated);
       
-      // Send success message
+      // Send success message with group link
       const groupLink = await getPrivateGroupLink();
+      console.log('Group link generated:', groupLink);
+      
       bot.sendMessage(telegramId,
         `✅ *Payment Successful!*\n\n` +
         `Subscription active until: ${endDate.toLocaleDateString()}\n\n` +
@@ -281,50 +288,20 @@ app.post('/stripe-webhook', express.raw({type: 'application/json'}), async (req,
         `Save this link!`,
         { parse_mode: 'Markdown' }
       );
+      console.log('Message sent to user');
       break;
       
     case 'customer.subscription.deleted':
-      const cancelledSub = event.data.object;
-      const customer = await stripe.customers.retrieve(cancelledSub.customer);
-      const userTelegramId = customer.metadata.telegram_id;
-      
-      // Update status
-      await updateUserSubscription(userTelegramId, 'cancelled', null);
-      
-      // Remove from group
-      try {
-        await bot.banChatMember(process.env.PRIVATE_GROUP_ID, userTelegramId);
-        await bot.unbanChatMember(process.env.PRIVATE_GROUP_ID, userTelegramId);
-      } catch (error) {
-        console.error('Could not remove from group:', error);
-      }
-      
-      // Notify user
-      bot.sendMessage(userTelegramId,
-        `❌ Subscription cancelled.\n\n` +
-        `You've been removed from the premium group.\n` +
-        `Use /start to subscribe again.`
-      );
+      // Rest of your existing code for this case...
       break;
       
     case 'invoice.payment_failed':
-      const invoice = event.data.object;
-      const failedCustomer = await stripe.customers.retrieve(invoice.customer);
-      const failedTelegramId = failedCustomer.metadata.telegram_id;
-      
-      bot.sendMessage(failedTelegramId,
-        `⚠️ *Payment Failed*\n\n` +
-        `Update your payment method:\n` +
-        `${process.env.SERVER_URL}/portal/${invoice.customer}\n\n` +
-        `You have 3 days before losing access.`,
-        { parse_mode: 'Markdown' }
-      );
+      // Rest of your existing code for this case...
       break;
   }
 
   res.json({received: true});
 });
-
 // Web Pages
 app.get('/success', (req, res) => {
   res.send(`
