@@ -9,8 +9,8 @@ const axios = require('axios');
 // Initialize bot and express
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 const app = express();
+app.use('/stripe-webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
-app.use(express.raw({ type: 'application/json' }));
 
 // Google Sheets setup
 const serviceAccountAuth = new JWT({
@@ -244,7 +244,6 @@ async function getPrivateGroupLink() {
 }
 
 // Stripe Webhook Handler
-app.post('/stripe-webhook', express.raw({type: 'application/json'}), async (req, res) => {
   console.log('Webhook received');
   const sig = req.headers['stripe-signature'];
   let event;
