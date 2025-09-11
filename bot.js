@@ -281,12 +281,12 @@ app.post('/stripe-webhook', async (req, res) => {
         console.log('Group link generated:', groupLink);
         
         await bot.sendMessage(telegramId,
-  `✅ *Payment Successful!*\n\n` +
-  `Subscription active until: ${endDate.toLocaleDateString()}\n\n` +
-  `🔗 Join Premium Group:\n${groupLink}\n\n` +
-  `Save this link!`,
-  { parse_mode: 'Markdown', disable_web_page_preview: true }
-);
+          `✅ *Payment Successful!*\n\n` +
+          `Subscription active until: ${endDate.toLocaleDateString()}\n\n` +
+          `🔗 *Join Premium Group:*\n${groupLink}\n\n` +
+          `Save this link!`,
+          { parse_mode: 'Markdown' }
+        );
         console.log('Message sent to user');
       } catch (error) {
         console.error('Error processing payment:', error);
@@ -421,19 +421,118 @@ app.get('/portal/:customerId', async (req, res) => {
   }
 });
 
-// Video player (if using VdoCipher)
+// Video player with Telegram Mini App authentication
 app.get('/video/:videoId', async (req, res) => {
-  const telegramId = req.query.user;
   const videoId = req.params.videoId;
   
-  // Verify subscription
-  const user = await getUser(telegramId);
-  if (!user || user.subscription_status !== 'active') {
-    return res.status(403).send('No active subscription');
-  }
+  // Send HTML with Telegram Web App authentication
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Video Player</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <script src="https://telegram.org/js/telegram-web-app.js"></script>
+      <style>
+        body { 
+          margin: 0; 
+          padding: 0; 
+          background: #000;
+          color: white;
+          font-family: Arial, sans-serif;
+        }
+        #player { width: 100%; height: 100vh; }
+        #loading { 
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          font-size: 20px;
+        }
+        #error {
+          display: none;
+          padding: 20px;
+          text-align: center;
+          color: #ff6b6b;
+        }
+      </style>
+    </head>
+    <body>
+      <div id="loading">Loading video...</div>
+      <div id="error"></div>
+      <div id="player" style="display: none;"></div>
+      
+      <script src="https://player.vdocipher.com/v2/api.js"></script>
+      <script>
+        // Initialize Telegram Web App
+        const tg = window.Telegram.WebApp;
+        tg.ready();
+        tg.expand();
+        
+        // Get user data
+        const initData = tg.initData;
+        const user = tg.initDataUnsafe.user;
+        
+        if (!user) {
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('error').style.display = 'block';
+          document.getElementById('error').innerHTML = 'Please open this link from Telegram';
+        } else {
+          // Verify subscription and load video
+          fetch('/api/verify-and-get-video/${videoId}', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              initData: initData,
+              userId: user.id
+            })
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.error) {
+              document.getElementById('loading').style.display = 'none';
+              document.getElementById('error').style.display = 'block';
+              document.getElementById('error').innerHTML = data.error;
+            } else {
+              document.getElementById('loading').style.display = 'none';
+              document.getElementById('player').style.display = 'block';
+              
+              // Initialize VdoCipher player
+              const player = VdoPlayer.getInstance({
+                otp: data.otp,
+                playbackInfo: data.playbackInfo,
+                theme: "9ae8bbe8dd964ddc9bdb932cca1cb59a",
+                container: document.getElementById("player"),
+              });
+            }
+          })
+          .catch(error => {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error').innerHTML = 'Error loading video';
+          });
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+// API endpoint to verify subscription and get video OTP
+app.post('/api/verify-and-get-video/:videoId', async (req, res) => {
+  const videoId = req.params.videoId;
+  const { userId } = req.body;
   
-  // Get VdoCipher OTP
   try {
+    // Verify subscription
+    const user = await getUser(userId);
+    if (!user || user.subscription_status !== 'active') {
+      return res.json({ error: 'No active subscription. Please subscribe to access videos.' });
+    }
+    
+    // Get VdoCipher OTP
     const response = await axios.post(
       `https://dev.vdocipher.com/api/videos/${videoId}/otp`,
       { ttl: 300 },
@@ -446,35 +545,11 @@ app.get('/video/:videoId', async (req, res) => {
     );
     
     const { otp, playbackInfo } = response.data;
+    res.json({ otp, playbackInfo });
     
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Video Player</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-          body { margin: 0; padding: 0; background: #000; }
-          #player { width: 100%; height: 100vh; }
-        </style>
-      </head>
-      <body>
-        <div id="player"></div>
-        <script src="https://player.vdocipher.com/v2/api.js"></script>
-        <script>
-          const player = VdoPlayer.getInstance({
-            otp: "${otp}",
-            playbackInfo: "${playbackInfo}",
-            theme: "9ae8bbe8dd964ddc9bdb932cca1cb59a",
-            container: document.getElementById("player"),
-          });
-        </script>
-      </body>
-      </html>
-    `);
   } catch (error) {
-    console.error('VdoCipher error:', error);
-    res.status(500).send('Error loading video');
+    console.error('Video API error:', error);
+    res.json({ error: 'Error loading video. Please try again.' });
   }
 });
 
@@ -483,35 +558,6 @@ app.get('/', (req, res) => {
   res.send('Bot is running!');
 });
 
-// Admin command for posting videos
-bot.onText(/\/postvideo (.+) (.+)/, async (msg, match) => {
-  if (msg.from.id !== 5315645744) return; // Your admin ID
-  
-  const videoId = match[1];
-  const title = match[2];
-  
-  const keyboard = {
-    inline_keyboard: [[
-      { 
-        text: '🎬 Watch Video', 
-        login_url: {
-          url: `${process.env.SERVER_URL}/video/${videoId}`,
-          request_write_access: false
-        }
-      }
-    ]]
-  };
-  
-  bot.sendMessage(process.env.PRIVATE_GROUP_ID,
-    `📚 ${title}`,
-    { reply_markup: keyboard }
-  );
-});
-
-// Start server
-async function start() {
-  // existing code...
-}
 // Start server
 async function start() {
   await initSheet();
