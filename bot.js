@@ -262,10 +262,11 @@ async function getPrivateGroupLink() {
 
   // Handle events
   switch (event.type) {
-    case 'checkout.session.completed':
-      const session = event.data.object;
-      const telegramId = session.metadata.telegram_id;
-      console.log('Processing payment for telegram_id:', telegramId);
+   case 'checkout.session.completed':
+  (async () => {
+    const session = event.data.object;
+    const telegramId = session.metadata.telegram_id;
+    console.log('Processing payment for telegram_id:', telegramId);
       
       // Get subscription details
       const subscription = await stripe.subscriptions.retrieve(session.subscription);
