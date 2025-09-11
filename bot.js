@@ -281,12 +281,12 @@ app.post('/stripe-webhook', async (req, res) => {
         console.log('Group link generated:', groupLink);
         
         await bot.sendMessage(telegramId,
-          `✅ *Payment Successful!*\n\n` +
-          `Subscription active until: ${endDate.toLocaleDateString()}\n\n` +
-          `🔗 *Join Premium Group:*\n${groupLink}\n\n` +
-          `Save this link!`,
-          { parse_mode: 'Markdown' }
-        );
+  `✅ *Payment Successful!*\n\n` +
+  `Subscription active until: ${endDate.toLocaleDateString()}\n\n` +
+  `🔗 Join Premium Group:\n${groupLink}\n\n` +
+  `Save this link!`,
+  { parse_mode: 'Markdown', disable_web_page_preview: true }
+);
         console.log('Message sent to user');
       } catch (error) {
         console.error('Error processing payment:', error);
