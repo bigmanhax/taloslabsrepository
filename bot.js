@@ -9,6 +9,8 @@ const axios = require('axios');
 // Initialize bot and express
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 const app = express();
+
+// IMPORTANT: Webhook needs raw body, everything else needs JSON
 app.use('/stripe-webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 
@@ -46,8 +48,7 @@ async function getUser(telegramId) {
         stripe_customer_id: userRow.get('stripe_customer_id'),
         subscription_status: userRow.get('subscription_status'),
         subscription_end_date: userRow.get('subscription_end_date'),
-        created_at: userRow.get('created_at'),
-        _row: userRow  // Keep reference for updates
+        created_at: userRow.get('created_at')
       };
     }
     return null;
@@ -244,6 +245,7 @@ async function getPrivateGroupLink() {
 }
 
 // Stripe Webhook Handler
+app.post('/stripe-webhook', async (req, res) => {
   console.log('Webhook received');
   const sig = req.headers['stripe-signature'];
   let event;
@@ -262,46 +264,82 @@ async function getPrivateGroupLink() {
 
   // Handle events
   switch (event.type) {
-   case 'checkout.session.completed':
-  (async () => {
-    const session = event.data.object;
-    const telegramId = session.metadata.telegram_id;
-    console.log('Processing payment for telegram_id:', telegramId);
+    case 'checkout.session.completed':
+      const session = event.data.object;
+      const telegramId = session.metadata.telegram_id;
+      console.log('Processing payment for telegram_id:', telegramId);
       
-      // Get subscription details
-      const subscription = await stripe.subscriptions.retrieve(session.subscription);
-      const endDate = new Date(subscription.current_period_end * 1000);
-      console.log('Subscription end date:', endDate);
-      
-      // Update user
-      const updated = await updateUserSubscription(telegramId, 'active', endDate);
-      console.log('User updated:', updated);
-      
-      // Send success message with group link
-      const groupLink = await getPrivateGroupLink();
-      console.log('Group link generated:', groupLink);
-      
-      bot.sendMessage(telegramId,
-        `✅ *Payment Successful!*\n\n` +
-        `Subscription active until: ${endDate.toLocaleDateString()}\n\n` +
-        `🔗 *Join Premium Group:*\n${groupLink}\n\n` +
-        `Save this link!`,
-        { parse_mode: 'Markdown' }
-      );
-      console.log('Message sent to user');
+      try {
+        const subscription = await stripe.subscriptions.retrieve(session.subscription);
+        const endDate = new Date(subscription.current_period_end * 1000);
+        console.log('Subscription end date:', endDate);
+        
+        const updated = await updateUserSubscription(telegramId, 'active', endDate);
+        console.log('User updated:', updated);
+        
+        const groupLink = await getPrivateGroupLink();
+        console.log('Group link generated:', groupLink);
+        
+        await bot.sendMessage(telegramId,
+          `✅ *Payment Successful!*\n\n` +
+          `Subscription active until: ${endDate.toLocaleDateString()}\n\n` +
+          `🔗 *Join Premium Group:*\n${groupLink}\n\n` +
+          `Save this link!`,
+          { parse_mode: 'Markdown' }
+        );
+        console.log('Message sent to user');
+      } catch (error) {
+        console.error('Error processing payment:', error);
+      }
       break;
       
     case 'customer.subscription.deleted':
-      // Rest of your existing code for this case...
+      const cancelledSub = event.data.object;
+      try {
+        const customer = await stripe.customers.retrieve(cancelledSub.customer);
+        const userTelegramId = customer.metadata.telegram_id;
+        
+        await updateUserSubscription(userTelegramId, 'cancelled', null);
+        
+        try {
+          await bot.banChatMember(process.env.PRIVATE_GROUP_ID, userTelegramId);
+          await bot.unbanChatMember(process.env.PRIVATE_GROUP_ID, userTelegramId);
+        } catch (error) {
+          console.error('Could not remove from group:', error);
+        }
+        
+        await bot.sendMessage(userTelegramId,
+          `❌ Subscription cancelled.\n\n` +
+          `You've been removed from the premium group.\n` +
+          `Use /start to subscribe again.`
+        );
+      } catch (error) {
+        console.error('Error handling cancellation:', error);
+      }
       break;
       
     case 'invoice.payment_failed':
-      // Rest of your existing code for this case...
+      const invoice = event.data.object;
+      try {
+        const failedCustomer = await stripe.customers.retrieve(invoice.customer);
+        const failedTelegramId = failedCustomer.metadata.telegram_id;
+        
+        await bot.sendMessage(failedTelegramId,
+          `⚠️ *Payment Failed*\n\n` +
+          `Update your payment method:\n` +
+          `${process.env.SERVER_URL}/portal/${invoice.customer}\n\n` +
+          `You have 3 days before losing access.`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch (error) {
+        console.error('Error handling failed payment:', error);
+      }
       break;
   }
 
   res.json({received: true});
 });
+
 // Web Pages
 app.get('/success', (req, res) => {
   res.send(`
