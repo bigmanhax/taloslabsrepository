@@ -483,6 +483,35 @@ app.get('/', (req, res) => {
   res.send('Bot is running!');
 });
 
+// Admin command for posting videos
+bot.onText(/\/postvideo (.+) (.+)/, async (msg, match) => {
+  if (msg.from.id !== 5315645744) return; // Your admin ID
+  
+  const videoId = match[1];
+  const title = match[2];
+  
+  const keyboard = {
+    inline_keyboard: [[
+      { 
+        text: '🎬 Watch Video', 
+        login_url: {
+          url: `${process.env.SERVER_URL}/video/${videoId}`,
+          request_write_access: false
+        }
+      }
+    ]]
+  };
+  
+  bot.sendMessage(process.env.PRIVATE_GROUP_ID,
+    `📚 ${title}`,
+    { reply_markup: keyboard }
+  );
+});
+
+// Start server
+async function start() {
+  // existing code...
+}
 // Start server
 async function start() {
   await initSheet();
