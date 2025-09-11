@@ -8,6 +8,9 @@ const axios = require('axios');
 
 // Initialize bot and express
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+bot.on('polling_error', (error) => {
+  console.log('Polling error:', error);
+});
 const app = express();
 
 // IMPORTANT: Webhook needs raw body, everything else needs JSON
